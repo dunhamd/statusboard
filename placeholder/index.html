@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OHSU Vista Pavilion</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: "Georgia", "Times New Roman", serif;
+    }
+
+    /* ── Background colour cycle ── */
+    #bg {
+      position: fixed;
+      inset: 0;
+      background: #003D2B;
+      animation: bgCycle 20s ease-in-out infinite;
+    }
+
+    @keyframes bgCycle {
+      0%   { background: #003D2B; }   /* deep forest green  */
+      20%  { background: #004B3A; }   /* OHSU dark green    */
+      40%  { background: #00635A; }   /* deep teal          */
+      60%  { background: #004B6B; }   /* deep ocean         */
+      80%  { background: #1A3A2E; }   /* moss green         */
+      100% { background: #003D2B; }
+    }
+
+    /* subtle radial vignette so edges stay dark */
+    #bg::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse 70% 70% at 50% 50%,
+                  transparent 40%, rgba(0,0,0,0.55) 100%);
+    }
+
+    /* ── Three.js canvas ── */
+    #canvas-wrap {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    canvas { display: block; }
+
+    /* ── Bottom text ── */
+    #caption {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 0 4vw 5.5vh;
+      text-align: left;
+      pointer-events: none;
+      /* subtle gradient footer so text stays readable */
+      background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 100%);
+    }
+
+    #caption .headline {
+      display: block;
+      font-size: clamp(1.6rem, 3.2vw, 3.4rem);
+      font-weight: 300;
+      letter-spacing: 0.04em;
+      color: rgba(255,255,255,0.88);
+      line-height: 1.15;
+      text-shadow: 0 2px 18px rgba(0,0,0,0.8);
+    }
+
+    #caption .sub {
+      display: block;
+      margin-top: 0.35em;
+      font-size: clamp(1.1rem, 2vw, 2.1rem);
+      font-weight: 400;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(0, 202, 162, 0.85);   /* OHSU bright teal */
+      text-shadow: 0 2px 12px rgba(0,0,0,0.9);
+    }
+
+    /* OHSU wordmark top-right */
+    #wordmark {
+      position: fixed;
+      top: 4vh;
+      right: 4vw;
+      font-size: clamp(0.75rem, 1.1vw, 1.1rem);
+      font-weight: 700;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.45);
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+<div id="bg"></div>
+<div id="canvas-wrap"><canvas id="c"></canvas></div>
+
+<div id="caption">
+  <span class="headline">Welcome to your Healing Place</span>
+  <span class="sub">OHSU Vista Pavilion</span>
+</div>
+
+<div id="wordmark">OHSU</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { RGBELoader }  from 'three/addons/loaders/RGBELoader.js';
+
+// ─────────────────────────────────────────────────────────
+//  Scene setup
+// ─────────────────────────────────────────────────────────
+const canvas  = document.getElementById('c');
+const wrap    = document.getElementById('canvas-wrap');
+const W = () => wrap.clientWidth;
+const H = () => wrap.clientHeight;
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(W(), H());
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
+renderer.toneMapping       = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.35;
+renderer.outputColorSpace  = THREE.SRGBColorSpace;
+
+const scene  = new THREE.Scene();
+scene.background = null;   // transparent – background handled by CSS
+
+const camera = new THREE.PerspectiveCamera(38, W() / H(), 0.1, 100);
+camera.position.set(0, 1.8, 9);
+camera.lookAt(0, 1.2, 0);
+
+// ─────────────────────────────────────────────────────────
+//  Materials
+// ─────────────────────────────────────────────────────────
+const GOLD   = new THREE.Color(0xC09030);
+const COPPER = new THREE.Color(0x8C4A22);
+
+const torchMat = new THREE.MeshStandardMaterial({
+  color:      GOLD,
+  metalness:  0.88,
+  roughness:  0.22,
+  envMapIntensity: 1.4,
+});
+
+const gripMat = new THREE.MeshStandardMaterial({
+  color:      COPPER,
+  metalness:  0.7,
+  roughness:  0.5,
+  envMapIntensity: 1.0,
+});
+
+// Flame layers – inner hot core + outer glow
+const flameMat = new THREE.MeshStandardMaterial({
+  color:     new THREE.Color(0xFFFFFF),
+  emissive:  new THREE.Color(0xFF8800),
+  emissiveIntensity: 3.5,
+  transparent: true,
+  opacity:    0.92,
+  depthWrite: false,
+  side: THREE.FrontSide,
+});
+
+const outerFlameMat = new THREE.MeshStandardMaterial({
+  color:     new THREE.Color(0xFF5500),
+  emissive:  new THREE.Color(0xFF2200),
+  emissiveIntensity: 2.0,
+  transparent: true,
+  opacity:    0.55,
+  depthWrite: false,
+  side: THREE.BackSide,
+});
+
+// ─────────────────────────────────────────────────────────
+//  Torch geometry
+// ─────────────────────────────────────────────────────────
+const torchGroup = new THREE.Group();
+scene.add(torchGroup);
+
+// --- Handle: tapered lathe ---
+const handlePts = [
+  new THREE.Vector2(0.18, 0.00),
+  new THREE.Vector2(0.20, 0.30),
+  new THREE.Vector2(0.21, 0.60),
+  new THREE.Vector2(0.22, 0.90),
+  new THREE.Vector2(0.23, 1.20),
+  new THREE.Vector2(0.24, 1.50),
+  new THREE.Vector2(0.25, 1.80),
+  new THREE.Vector2(0.24, 2.10),
+  new THREE.Vector2(0.23, 2.40),
+  new THREE.Vector2(0.22, 2.70),
+  new THREE.Vector2(0.20, 2.95),
+];
+const handleGeo = new THREE.LatheGeometry(handlePts, 48);
+const handle    = new THREE.Mesh(handleGeo, torchMat);
+handle.castShadow = true;
+torchGroup.add(handle);
+
+// --- Grip bands ---
+const bandGeo = new THREE.TorusGeometry(0.245, 0.028, 12, 48);
+for (let y of [0.45, 0.90, 1.35, 1.80, 2.25]) {
+  const band = new THREE.Mesh(bandGeo, gripMat);
+  band.position.y = y;
+  band.rotation.x = Math.PI / 2;
+  band.castShadow = true;
+  torchGroup.add(band);
+}
+
+// --- Cup / bowl ---
+const bowlPts = [
+  new THREE.Vector2(0.20, 0.00),
+  new THREE.Vector2(0.26, 0.05),
+  new THREE.Vector2(0.35, 0.20),
+  new THREE.Vector2(0.48, 0.45),
+  new THREE.Vector2(0.58, 0.72),
+  new THREE.Vector2(0.62, 1.00),
+  new THREE.Vector2(0.60, 1.22),
+  new THREE.Vector2(0.54, 1.38),
+  new THREE.Vector2(0.44, 1.48),
+];
+const bowlGeo = new THREE.LatheGeometry(bowlPts, 48);
+const bowl    = new THREE.Mesh(bowlGeo, torchMat);
+bowl.position.y = 2.95;
+bowl.castShadow = true;
+torchGroup.add(bowl);
+
+// --- Rim ring ---
+const rimGeo = new THREE.TorusGeometry(0.44, 0.035, 12, 64);
+const rim    = new THREE.Mesh(rimGeo, gripMat);
+rim.position.y = 2.95 + 1.48;
+rim.rotation.x = Math.PI / 2;
+rim.castShadow = true;
+torchGroup.add(rim);
+
+// --- Flame (inner) – tapered lathe ---
+const flameInnerPts = [
+  new THREE.Vector2(0.00, 0.00),
+  new THREE.Vector2(0.22, 0.15),
+  new THREE.Vector2(0.30, 0.40),
+  new THREE.Vector2(0.32, 0.70),
+  new THREE.Vector2(0.28, 1.10),
+  new THREE.Vector2(0.18, 1.55),
+  new THREE.Vector2(0.06, 1.95),
+  new THREE.Vector2(0.00, 2.20),
+];
+const flameGeo  = new THREE.LatheGeometry(flameInnerPts, 32);
+const flame     = new THREE.Mesh(flameGeo, flameMat);
+flame.position.y = 2.95 + 1.45;
+torchGroup.add(flame);
+
+// --- Flame (outer glow) ---
+const flameOuterPts = flameInnerPts.map(v => new THREE.Vector2(v.x * 1.28, v.y));
+const flameOuterGeo = new THREE.LatheGeometry(flameOuterPts, 32);
+const flameOuter    = new THREE.Mesh(flameOuterGeo, outerFlameMat);
+flameOuter.position.y = 2.95 + 1.45;
+torchGroup.add(flameOuter);
+
+// Center the whole torch vertically for camera
+torchGroup.position.y = -2.6;
+
+// ─────────────────────────────────────────────────────────
+//  Studio Lighting
+// ─────────────────────────────────────────────────────────
+
+// Key light – warm, from upper-left front
+const keyLight = new THREE.SpotLight(0xFFF8E8, 4.5, 30, Math.PI / 6, 0.35, 1.5);
+keyLight.position.set(-5, 8, 6);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.camera.near = 1;
+keyLight.shadow.camera.far  = 40;
+scene.add(keyLight);
+scene.add(keyLight.target);   // target stays at origin
+
+// Fill light – cool, lower right
+const fillLight = new THREE.DirectionalLight(0xC8E0FF, 1.1);
+fillLight.position.set(5, 2, 4);
+scene.add(fillLight);
+
+// Rim / hair light – behind, slightly above
+const rimLight = new THREE.DirectionalLight(0xFFEECC, 2.2);
+rimLight.position.set(-1, 6, -7);
+scene.add(rimLight);
+
+// Ground bounce – very soft warm from below
+const bounceLight = new THREE.DirectionalLight(0xFFD580, 0.4);
+bounceLight.position.set(0, -4, 3);
+scene.add(bounceLight);
+
+// Ambient – keeps shadows from going pitch black
+const ambient = new THREE.AmbientLight(0x334455, 0.6);
+scene.add(ambient);
+
+// Flame point light – flickers
+const flameLight = new THREE.PointLight(0xFF7700, 3.5, 8, 2);
+flameLight.position.set(0, 2.95 + 1.45 + 1.2, 0);
+scene.add(flameLight);
+
+// ─────────────────────────────────────────────────────────
+//  Animation
+// ─────────────────────────────────────────────────────────
+const ROTATE_SPEED = 0.004;   // radians per frame (~14 seconds / revolution)
+
+let lastTime = 0;
+function animate(t) {
+  requestAnimationFrame(animate);
+
+  const dt = t - lastTime;
+  lastTime = t;
+
+  // Slow rotation
+  torchGroup.rotation.y += ROTATE_SPEED;
+
+  // Flame flicker – scale + light intensity
+  const flicker  = 1 + 0.06 * Math.sin(t * 0.0047)
+                     + 0.04 * Math.sin(t * 0.0113)
+                     + 0.02 * Math.sin(t * 0.0231);
+  flame.scale.set(flicker * 0.97, flicker, flicker * 0.97);
+  flameOuter.scale.copy(flame.scale);
+
+  flameLight.intensity = 3.5 * flicker;
+  flameMat.emissiveIntensity  = 3.5 * flicker;
+  outerFlameMat.emissiveIntensity = 2.0 * (flicker * 0.9 + 0.1);
+
+  renderer.render(scene, camera);
+}
+
+requestAnimationFrame(animate);
+
+// ─────────────────────────────────────────────────────────
+//  Resize
+// ─────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  renderer.setSize(W(), H());
+  camera.aspect = W() / H();
+  camera.updateProjectionMatrix();
+});
+</script>
+</body>
+</html>
