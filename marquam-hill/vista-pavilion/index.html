@@ -651,6 +651,10 @@
       text-shadow: 0 1px 6px rgba(0,0,0,0.8);
       white-space: nowrap;
     }
+
+    /* Landscape static layout: tram left, bus right */
+    #panel-tram { order: 1; }
+    #panel-bus  { order: 2; }
   </style>
 </head>
 <body>
@@ -688,7 +692,7 @@
       <div class="panel-header">
         <div>
           <div class="panel-title panel-bus">Bus</div>
-          <div class="panel-tagline">Next departures · South Waterfront</div>
+          <div class="panel-tagline">Next departures · SW Campus Dr</div>
         </div>
         <div class="panel-pill panel-bus">Lines &amp; route names</div>
       </div>
@@ -711,7 +715,7 @@
     </section>
 
     <!-- Pair 1: Tram + Streetcar -->
-    <section class="panel panel-hidden" id="panel-tram" data-pair="1">
+    <section class="panel" id="panel-tram" data-pair="1">
       <div class="panel-header">
         <div>
           <div class="panel-title panel-tram">Aerial Tram &amp; Weather</div>
@@ -1555,20 +1559,16 @@
       updateClock();
       setInterval(updateClock, 1000);
 
-      setVisiblePair(availablePairs.length > 0 ? availablePairs[0] : 0);
+      // Static 2-column landscape layout: tram left, bus right (no cycling)
+      const modeLabel = document.getElementById("mode-label");
+      if (modeLabel) modeLabel.textContent = "Live Board · Tram & Bus";
+      const hint = document.getElementById("slide-timer");
+      if (hint) hint.textContent = `Live Board · Updates every ${REFRESH_SECONDS}s`;
+
       refreshBoard();
       refreshWeather();
 
-      setInterval(() => {
-        // Only toggle if there are multiple pairs available
-        if (availablePairs.length > 1) {
-          const currentIndex = availablePairs.indexOf(currentPair);
-          const nextIndex = (currentIndex + 1) % availablePairs.length;
-          const nextPair = availablePairs[nextIndex];
-          setVisiblePair(nextPair);
-        }
-        refreshBoard();
-      }, REFRESH_SECONDS * 1000);
+      setInterval(() => { refreshBoard(); }, REFRESH_SECONDS * 1000);
 
       setInterval(refreshWeather, WEATHER_REFRESH_MINUTES * 60 * 1000);
     }
