@@ -1,0 +1,29 @@
+{
+  "building_id": "vista-pavilion",
+  "display_name": "Vista Pavilion",
+  "campus_region": "Marquam Hill",
+  "primary_stops": [
+    {
+      "id": 12844,
+      "label": "OHSU Aerial Tram · Upper Terminal",
+      "type": "tram",
+      "direction": "downhill"
+    }
+  ],
+  "secondary_stops": [
+    {
+      "id": 10176,
+      "label": "SW Campus Dr · Bus Lines 8, 43, 56",
+      "type": "bus",
+      "lines": ["8", "43", "56"]
+    }
+  ],
+  "alerts": {
+    "active": true,
+    "message": "Vista Pavilion opening April 7, 2026 · Campus Drive transit stop resuming service"
+  },
+  "features": {
+    "show_tram_status": true,
+    "accessibility_highlight": false
+  }
+}
