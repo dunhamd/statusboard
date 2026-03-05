@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OHSU Vista Pavilion</title>
+  <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.0/dist/maplibre-gl.css" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -14,44 +15,32 @@
       font-family: "Georgia", "Times New Roman", serif;
     }
 
-    /* ── Background colour cycle ── */
-    #bg {
+    /* ── MapLibre satellite background ── */
+    #map {
       position: fixed;
       inset: 0;
-      background: #003D2B;
-      animation: bgCycle 20s ease-in-out infinite;
+      z-index: 0;
     }
 
-    @keyframes bgCycle {
-      0%   { background: #003D2B; }   /* deep forest green  */
-      20%  { background: #004B3A; }   /* OHSU dark green    */
-      40%  { background: #00635A; }   /* deep teal          */
-      60%  { background: #004B6B; }   /* deep ocean         */
-      80%  { background: #1A3A2E; }   /* moss green         */
-      100% { background: #003D2B; }
-    }
-
-    /* subtle radial vignette so edges stay dark */
-    #bg::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background: radial-gradient(ellipse 70% 70% at 50% 50%,
-                  transparent 40%, rgba(0,0,0,0.55) 100%);
-    }
-
-    /* ── Three.js canvas ── */
-    #canvas-wrap {
+    /* vignette over the map */
+    #vignette {
       position: fixed;
       inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      z-index: 1;
+      pointer-events: none;
+      background: radial-gradient(ellipse 75% 75% at 50% 50%,
+                  transparent 25%, rgba(0,0,0,0.55) 100%);
     }
 
-    canvas { display: block; }
+    /* ── Three.js torch canvas ── */
+    #torch-canvas {
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+    }
 
-    /* ── Bottom text ── */
+    /* ── Bottom caption ── */
     #caption {
       position: fixed;
       bottom: 0;
@@ -60,8 +49,8 @@
       padding: 0 4vw 5.5vh;
       text-align: left;
       pointer-events: none;
-      /* subtle gradient footer so text stays readable */
-      background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 100%);
+      z-index: 3;
+      background: linear-gradient(to top, rgba(0,0,0,0.65) 0%, transparent 100%);
     }
 
     #caption .headline {
@@ -69,9 +58,9 @@
       font-size: clamp(1.6rem, 3.2vw, 3.4rem);
       font-weight: 300;
       letter-spacing: 0.04em;
-      color: rgba(255,255,255,0.88);
+      color: rgba(255,255,255,0.9);
       line-height: 1.15;
-      text-shadow: 0 2px 18px rgba(0,0,0,0.8);
+      text-shadow: 0 2px 18px rgba(0,0,0,0.9);
     }
 
     #caption .sub {
@@ -81,11 +70,11 @@
       font-weight: 400;
       letter-spacing: 0.12em;
       text-transform: uppercase;
-      color: rgba(0, 202, 162, 0.85);   /* OHSU bright teal */
+      color: rgba(0, 202, 162, 0.9);
       text-shadow: 0 2px 12px rgba(0,0,0,0.9);
     }
 
-    /* OHSU wordmark top-right */
+    /* OHSU wordmark */
     #wordmark {
       position: fixed;
       top: 4vh;
@@ -94,15 +83,22 @@
       font-weight: 700;
       letter-spacing: 0.25em;
       text-transform: uppercase;
-      color: rgba(255,255,255,0.45);
+      color: rgba(255,255,255,0.5);
       pointer-events: none;
+      z-index: 3;
     }
+
+    /* Hide MapLibre chrome */
+    .maplibregl-ctrl-logo,
+    .maplibregl-ctrl-attrib,
+    .maplibregl-ctrl-group { display: none !important; }
   </style>
 </head>
 <body>
 
-<div id="bg"></div>
-<div id="canvas-wrap"><canvas id="c"></canvas></div>
+<div id="map"></div>
+<div id="vignette"></div>
+<canvas id="torch-canvas"></canvas>
 
 <div id="caption">
   <span class="headline">Welcome to your Healing Place</span>
@@ -110,6 +106,8 @@
 </div>
 
 <div id="wordmark">OHSU</div>
+
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.0/dist/maplibre-gl.js"></script>
 
 <script type="importmap">
 {
@@ -122,15 +120,43 @@
 
 <script type="module">
 import * as THREE from 'three';
-import { RGBELoader }  from 'three/addons/loaders/RGBELoader.js';
 
-// ─────────────────────────────────────────────────────────
-//  Scene setup
-// ─────────────────────────────────────────────────────────
-const canvas  = document.getElementById('c');
-const wrap    = document.getElementById('canvas-wrap');
-const W = () => wrap.clientWidth;
-const H = () => wrap.clientHeight;
+// ═══════════════════════════════════════════════════════════
+//  MapLibre – OHSU Marquam Hill orbital fly-around
+// ═══════════════════════════════════════════════════════════
+
+const OHSU_CENTER = [-122.6851, 45.4976];
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {
+      satellite: {
+        type: 'raster',
+        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        tileSize: 256,
+        maxzoom: 19,
+        attribution: '© Esri, Maxar, Earthstar Geographics',
+      },
+    },
+    layers: [{ id: 'satellite', type: 'raster', source: 'satellite' }],
+  },
+  center: OHSU_CENTER,
+  zoom: 15.4,
+  pitch: 58,
+  bearing: 0,
+  interactive: false,
+  attributionControl: false,
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Three.js – Improved torch + flame
+// ═══════════════════════════════════════════════════════════
+
+const canvas   = document.getElementById('torch-canvas');
+const W = () => window.innerWidth;
+const H = () => window.innerHeight;
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -138,85 +164,47 @@ renderer.setSize(W(), H());
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
 renderer.toneMapping       = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.35;
+renderer.toneMappingExposure = 1.4;
 renderer.outputColorSpace  = THREE.SRGBColorSpace;
 
 const scene  = new THREE.Scene();
-scene.background = null;   // transparent – background handled by CSS
+scene.background = null;
 
 const camera = new THREE.PerspectiveCamera(38, W() / H(), 0.1, 100);
 camera.position.set(0, 1.8, 9);
 camera.lookAt(0, 1.2, 0);
 
-// ─────────────────────────────────────────────────────────
-//  Materials
-// ─────────────────────────────────────────────────────────
-const GOLD   = new THREE.Color(0xC09030);
-const COPPER = new THREE.Color(0x8C4A22);
-
+// ── Materials ──────────────────────────────────────────────
 const torchMat = new THREE.MeshStandardMaterial({
-  color:      GOLD,
-  metalness:  0.88,
-  roughness:  0.22,
-  envMapIntensity: 1.4,
+  color:     new THREE.Color(0xC09030),
+  metalness: 0.90,
+  roughness: 0.18,
+  envMapIntensity: 1.5,
 });
 
 const gripMat = new THREE.MeshStandardMaterial({
-  color:      COPPER,
-  metalness:  0.7,
-  roughness:  0.5,
-  envMapIntensity: 1.0,
+  color:     new THREE.Color(0x7A3A18),
+  metalness: 0.75,
+  roughness: 0.48,
 });
 
-// Flame layers – inner hot core + outer glow
-const flameMat = new THREE.MeshStandardMaterial({
-  color:     new THREE.Color(0xFFFFFF),
-  emissive:  new THREE.Color(0xFF8800),
-  emissiveIntensity: 3.5,
-  transparent: true,
-  opacity:    0.92,
-  depthWrite: false,
-  side: THREE.FrontSide,
-});
-
-const outerFlameMat = new THREE.MeshStandardMaterial({
-  color:     new THREE.Color(0xFF5500),
-  emissive:  new THREE.Color(0xFF2200),
-  emissiveIntensity: 2.0,
-  transparent: true,
-  opacity:    0.55,
-  depthWrite: false,
-  side: THREE.BackSide,
-});
-
-// ─────────────────────────────────────────────────────────
-//  Torch geometry
-// ─────────────────────────────────────────────────────────
+// ── Torch body ─────────────────────────────────────────────
 const torchGroup = new THREE.Group();
 scene.add(torchGroup);
 
-// --- Handle: tapered lathe ---
+// Handle
 const handlePts = [
-  new THREE.Vector2(0.18, 0.00),
-  new THREE.Vector2(0.20, 0.30),
-  new THREE.Vector2(0.21, 0.60),
-  new THREE.Vector2(0.22, 0.90),
-  new THREE.Vector2(0.23, 1.20),
-  new THREE.Vector2(0.24, 1.50),
-  new THREE.Vector2(0.25, 1.80),
-  new THREE.Vector2(0.24, 2.10),
-  new THREE.Vector2(0.23, 2.40),
-  new THREE.Vector2(0.22, 2.70),
-  new THREE.Vector2(0.20, 2.95),
-];
-const handleGeo = new THREE.LatheGeometry(handlePts, 48);
-const handle    = new THREE.Mesh(handleGeo, torchMat);
+  [0.18, 0.00], [0.195, 0.30], [0.205, 0.60], [0.215, 0.90],
+  [0.225, 1.20], [0.235, 1.50], [0.245, 1.80], [0.235, 2.10],
+  [0.225, 2.40], [0.215, 2.70], [0.200, 2.95],
+].map(([x, y]) => new THREE.Vector2(x, y));
+const handle = new THREE.Mesh(new THREE.LatheGeometry(handlePts, 64), torchMat);
 handle.castShadow = true;
 torchGroup.add(handle);
 
-// --- Grip bands ---
-const bandGeo = new THREE.TorusGeometry(0.245, 0.028, 12, 48);
-for (let y of [0.45, 0.90, 1.35, 1.80, 2.25]) {
+// Grip bands
+const bandGeo = new THREE.TorusGeometry(0.245, 0.030, 14, 64);
+for (const y of [0.40, 0.85, 1.30, 1.75, 2.20]) {
   const band = new THREE.Mesh(bandGeo, gripMat);
   band.position.y = y;
   band.rotation.x = Math.PI / 2;
@@ -224,134 +212,253 @@ for (let y of [0.45, 0.90, 1.35, 1.80, 2.25]) {
   torchGroup.add(band);
 }
 
-// --- Cup / bowl ---
+// Bowl / cup
 const bowlPts = [
-  new THREE.Vector2(0.20, 0.00),
-  new THREE.Vector2(0.26, 0.05),
-  new THREE.Vector2(0.35, 0.20),
-  new THREE.Vector2(0.48, 0.45),
-  new THREE.Vector2(0.58, 0.72),
-  new THREE.Vector2(0.62, 1.00),
-  new THREE.Vector2(0.60, 1.22),
-  new THREE.Vector2(0.54, 1.38),
-  new THREE.Vector2(0.44, 1.48),
-];
-const bowlGeo = new THREE.LatheGeometry(bowlPts, 48);
-const bowl    = new THREE.Mesh(bowlGeo, torchMat);
+  [0.200, 0.00], [0.265, 0.06], [0.360, 0.22], [0.490, 0.48],
+  [0.590, 0.76], [0.630, 1.04], [0.610, 1.26], [0.545, 1.42],
+  [0.440, 1.52],
+].map(([x, y]) => new THREE.Vector2(x, y));
+const bowl = new THREE.Mesh(new THREE.LatheGeometry(bowlPts, 64), torchMat);
 bowl.position.y = 2.95;
 bowl.castShadow = true;
 torchGroup.add(bowl);
 
-// --- Rim ring ---
-const rimGeo = new THREE.TorusGeometry(0.44, 0.035, 12, 64);
-const rim    = new THREE.Mesh(rimGeo, gripMat);
-rim.position.y = 2.95 + 1.48;
+// Rim ring
+const rim = new THREE.Mesh(new THREE.TorusGeometry(0.44, 0.038, 14, 72), gripMat);
+rim.position.y = 2.95 + 1.52;
 rim.rotation.x = Math.PI / 2;
 rim.castShadow = true;
 torchGroup.add(rim);
 
-// --- Flame (inner) – tapered lathe ---
-const flameInnerPts = [
-  new THREE.Vector2(0.00, 0.00),
-  new THREE.Vector2(0.22, 0.15),
-  new THREE.Vector2(0.30, 0.40),
-  new THREE.Vector2(0.32, 0.70),
-  new THREE.Vector2(0.28, 1.10),
-  new THREE.Vector2(0.18, 1.55),
-  new THREE.Vector2(0.06, 1.95),
-  new THREE.Vector2(0.00, 2.20),
+// ── Flame (4 layers) ───────────────────────────────────────
+const FLAME_BASE_Y = 2.95 + 1.48;
+
+// Shared profile – points from base to tip
+const FLAME_PROFILE = [
+  [0.00, 0.00], [0.24, 0.18], [0.33, 0.45],
+  [0.34, 0.75], [0.30, 1.15], [0.19, 1.60],
+  [0.07, 2.00], [0.00, 2.30],
 ];
-const flameGeo  = new THREE.LatheGeometry(flameInnerPts, 32);
-const flame     = new THREE.Mesh(flameGeo, flameMat);
-flame.position.y = 2.95 + 1.45;
-torchGroup.add(flame);
 
-// --- Flame (outer glow) ---
-const flameOuterPts = flameInnerPts.map(v => new THREE.Vector2(v.x * 1.28, v.y));
-const flameOuterGeo = new THREE.LatheGeometry(flameOuterPts, 32);
-const flameOuter    = new THREE.Mesh(flameOuterGeo, outerFlameMat);
-flameOuter.position.y = 2.95 + 1.45;
-torchGroup.add(flameOuter);
+function makeFlame(xScale, color, emissive, emissiveInt, opacity, side) {
+  const pts = FLAME_PROFILE.map(([x, y]) => new THREE.Vector2(x * xScale, y));
+  const mat = new THREE.MeshStandardMaterial({
+    color:    new THREE.Color(color),
+    emissive: new THREE.Color(emissive),
+    emissiveIntensity: emissiveInt,
+    transparent: true,
+    opacity,
+    depthWrite: false,
+    side,
+  });
+  const mesh = new THREE.Mesh(new THREE.LatheGeometry(pts, 36), mat);
+  mesh.position.y = FLAME_BASE_Y;
+  torchGroup.add(mesh);
+  return { mesh, mat };
+}
 
-// Center the whole torch vertically for camera
-torchGroup.position.y = -2.6;
+// Layer 1 – wide base glow (deep red-orange, BackSide)
+const fl1 = makeFlame(1.55, 0xFF2200, 0xFF1100, 1.2, 0.28, THREE.BackSide);
+// Layer 2 – outer body (orange, BackSide)
+const fl2 = makeFlame(1.22, 0xFF5500, 0xFF3300, 2.0, 0.50, THREE.BackSide);
+// Layer 3 – main flame (orange-yellow, FrontSide)
+const fl3 = makeFlame(1.00, 0xFFAA00, 0xFF8800, 3.2, 0.82, THREE.FrontSide);
+// Layer 4 – hot inner core (yellow-white, FrontSide)
+const fl4 = makeFlame(0.50, 0xFFFFCC, 0xFFEE55, 5.5, 0.97, THREE.FrontSide);
 
-// ─────────────────────────────────────────────────────────
-//  Studio Lighting
-// ─────────────────────────────────────────────────────────
+// Render order so transparency sorts correctly
+fl1.mesh.renderOrder = 1;
+fl2.mesh.renderOrder = 2;
+fl3.mesh.renderOrder = 3;
+fl4.mesh.renderOrder = 4;
 
-// Key light – warm, from upper-left front
-const keyLight = new THREE.SpotLight(0xFFF8E8, 4.5, 30, Math.PI / 6, 0.35, 1.5);
-keyLight.position.set(-5, 8, 6);
+// ── Spark particles ────────────────────────────────────────
+const SPARK_COUNT = 50;
+const sparkPos = new Float32Array(SPARK_COUNT * 3);
+
+const sparkState = Array.from({ length: SPARK_COUNT }, () => ({
+  life: Math.random(),
+  maxLife: 0.6 + Math.random() * 1.8,
+  vx: (Math.random() - 0.5) * 0.025,
+  vy: 0.012 + Math.random() * 0.030,
+  vz: (Math.random() - 0.5) * 0.025,
+}));
+
+// Initialise positions at flame crown
+for (let i = 0; i < SPARK_COUNT; i++) {
+  const a = Math.random() * Math.PI * 2;
+  const r = Math.random() * 0.20;
+  sparkPos[i*3]   = Math.cos(a) * r;
+  sparkPos[i*3+1] = FLAME_BASE_Y + 1.4 + Math.random() * 0.6;
+  sparkPos[i*3+2] = Math.sin(a) * r;
+}
+
+const sparkGeo = new THREE.BufferGeometry();
+sparkGeo.setAttribute('position', new THREE.BufferAttribute(sparkPos, 3));
+
+const sparkMat = new THREE.PointsMaterial({
+  color: 0xFFCC44,
+  size: 0.055,
+  transparent: true,
+  opacity: 0.95,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  sizeAttenuation: true,
+});
+
+const sparks = new THREE.Points(sparkGeo, sparkMat);
+sparks.renderOrder = 5;
+torchGroup.add(sparks);
+
+// ── Lighting ───────────────────────────────────────────────
+// Key – warm upper-left
+const keyLight = new THREE.SpotLight(0xFFF8E8, 5.0, 32, Math.PI / 6, 0.35, 1.5);
+keyLight.position.set(-5, 9, 6);
 keyLight.castShadow = true;
 keyLight.shadow.mapSize.set(2048, 2048);
-keyLight.shadow.camera.near = 1;
-keyLight.shadow.camera.far  = 40;
-scene.add(keyLight);
-scene.add(keyLight.target);   // target stays at origin
+scene.add(keyLight, keyLight.target);
 
-// Fill light – cool, lower right
-const fillLight = new THREE.DirectionalLight(0xC8E0FF, 1.1);
+// Fill – cool right
+const fillLight = new THREE.DirectionalLight(0xC0D8FF, 1.2);
 fillLight.position.set(5, 2, 4);
 scene.add(fillLight);
 
-// Rim / hair light – behind, slightly above
-const rimLight = new THREE.DirectionalLight(0xFFEECC, 2.2);
-rimLight.position.set(-1, 6, -7);
+// Rim – behind, above
+const rimLight = new THREE.DirectionalLight(0xFFEECC, 2.4);
+rimLight.position.set(-1, 7, -7);
 scene.add(rimLight);
 
-// Ground bounce – very soft warm from below
-const bounceLight = new THREE.DirectionalLight(0xFFD580, 0.4);
+// Ground bounce
+const bounceLight = new THREE.DirectionalLight(0xFFD070, 0.45);
 bounceLight.position.set(0, -4, 3);
 scene.add(bounceLight);
 
-// Ambient – keeps shadows from going pitch black
-const ambient = new THREE.AmbientLight(0x334455, 0.6);
-scene.add(ambient);
+// Ambient
+scene.add(new THREE.AmbientLight(0x2A3A4A, 0.65));
 
-// Flame point light – flickers
-const flameLight = new THREE.PointLight(0xFF7700, 3.5, 8, 2);
-flameLight.position.set(0, 2.95 + 1.45 + 1.2, 0);
+// Flame point lights – flicker individually
+const flameLight = new THREE.PointLight(0xFF7700, 4.5, 12, 2);
+flameLight.position.set(0, FLAME_BASE_Y + 1.0, 0);
 scene.add(flameLight);
 
-// ─────────────────────────────────────────────────────────
-//  Animation
-// ─────────────────────────────────────────────────────────
-const ROTATE_SPEED = 0.004;   // radians per frame (~14 seconds / revolution)
+const flameLightTop = new THREE.PointLight(0xFFAA22, 2.2, 7, 2);
+flameLightTop.position.set(0, FLAME_BASE_Y + 1.9, 0);
+scene.add(flameLightTop);
 
-let lastTime = 0;
+// Shift whole torch down so it sits nicely in frame
+torchGroup.position.y = -2.6;
+
+// ═══════════════════════════════════════════════════════════
+//  Helpers
+// ═══════════════════════════════════════════════════════════
+
+// Multi-frequency turbulence noise for realistic flicker
+function turb(t, phase = 0) {
+  return (
+    1.000
+    + 0.070 * Math.sin(t * 0.00520 + phase)
+    + 0.050 * Math.sin(t * 0.01310 + phase * 1.73)
+    + 0.030 * Math.sin(t * 0.02470 + phase * 2.31)
+    + 0.015 * Math.sin(t * 0.04590 + phase * 3.17)
+    + 0.008 * Math.sin(t * 0.08230 + phase * 4.61)
+    + 0.004 * Math.sin(t * 0.15710 + phase * 6.28)
+  );
+}
+
+function updateSparks(dt) {
+  const pos = sparkGeo.attributes.position;
+  for (let i = 0; i < SPARK_COUNT; i++) {
+    const s = sparkState[i];
+    s.life += dt * 0.0008;
+
+    if (s.life >= s.maxLife) {
+      // Respawn at flame crown
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * 0.18;
+      pos.array[i*3]   = Math.cos(a) * r;
+      pos.array[i*3+1] = FLAME_BASE_Y + 1.1 + Math.random() * 0.4;
+      pos.array[i*3+2] = Math.sin(a) * r;
+      s.vx = (Math.random() - 0.5) * 0.025;
+      s.vy = 0.010 + Math.random() * 0.032;
+      s.vz = (Math.random() - 0.5) * 0.025;
+      s.life = 0;
+      s.maxLife = 0.6 + Math.random() * 1.8;
+    } else {
+      // Drift upward with turbulence
+      s.vx += (Math.random() - 0.5) * 0.0030;
+      s.vz += (Math.random() - 0.5) * 0.0030;
+      s.vy -= 0.00008; // slight gravity drag
+      pos.array[i*3]   += s.vx;
+      pos.array[i*3+1] += s.vy;
+      pos.array[i*3+2] += s.vz;
+    }
+  }
+  pos.needsUpdate = true;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Animation loop
+// ═══════════════════════════════════════════════════════════
+let mapBearing   = 0;
+let lastT        = 0;
+const MAP_ROTATE = 0.0070; // degrees per ms at 60fps ≈ 0.42°/s, full orbit ~14 min
+
 function animate(t) {
   requestAnimationFrame(animate);
+  const dt = Math.min(t - lastT, 50); // clamp dt so paused tabs don't jump
+  lastT = t;
 
-  const dt = t - lastTime;
-  lastTime = t;
+  // ── Torch rotation ──────────────────────────────────
+  torchGroup.rotation.y += 0.0028;
 
-  // Slow rotation
-  torchGroup.rotation.y += ROTATE_SPEED;
+  // ── Flame flicker ───────────────────────────────────
+  const fA = turb(t, 0.0);
+  const fB = turb(t, 1.6);
+  const fC = turb(t, 3.1);
+  const fD = turb(t, 4.8);
 
-  // Flame flicker – scale + light intensity
-  const flicker  = 1 + 0.06 * Math.sin(t * 0.0047)
-                     + 0.04 * Math.sin(t * 0.0113)
-                     + 0.02 * Math.sin(t * 0.0231);
-  flame.scale.set(flicker * 0.97, flicker, flicker * 0.97);
-  flameOuter.scale.copy(flame.scale);
+  fl1.mesh.scale.set(fA * 0.96, fB * 1.03, fA * 0.96);
+  fl2.mesh.scale.set(fB * 0.98, fA * 1.01, fB * 0.98);
+  fl3.mesh.scale.set(fC,        fA,         fC);
+  fl4.mesh.scale.set(fD * 0.94, fC * 1.06, fD * 0.94);
 
-  flameLight.intensity = 3.5 * flicker;
-  flameMat.emissiveIntensity  = 3.5 * flicker;
-  outerFlameMat.emissiveIntensity = 2.0 * (flicker * 0.9 + 0.1);
+  fl3.mat.emissiveIntensity = 3.2 * fA;
+  fl4.mat.emissiveIntensity = 5.5 * fD;
+
+  // ── Flame lights ────────────────────────────────────
+  flameLight.intensity    = 4.5 * fA;
+  flameLightTop.intensity = 2.2 * fC;
+
+  // Subtle position wobble for dancing light
+  flameLight.position.x    =  0.14 * Math.sin(t * 0.00210);
+  flameLight.position.z    =  0.11 * Math.cos(t * 0.00330);
+  flameLightTop.position.x = -0.10 * Math.sin(t * 0.00170);
+  flameLightTop.position.z =  0.09 * Math.cos(t * 0.00290);
+
+  // ── Sparks ──────────────────────────────────────────
+  updateSparks(dt);
+
+  // ── Map orbital rotation ────────────────────────────
+  mapBearing += MAP_ROTATE * dt / 16.67; // normalise to 60fps
+  // Vary pitch and zoom slowly for cinematic depth
+  const slowSin = Math.sin(t * 0.00018);
+  if (map.isStyleLoaded()) {
+    map.setBearing(mapBearing % 360);
+    map.setPitch(55 + 8 * slowSin);
+    map.setZoom(15.2 + 0.4 * Math.sin(t * 0.00011));
+  }
 
   renderer.render(scene, camera);
 }
 
 requestAnimationFrame(animate);
 
-// ─────────────────────────────────────────────────────────
-//  Resize
-// ─────────────────────────────────────────────────────────
+// ── Resize ──────────────────────────────────────────────────
 window.addEventListener('resize', () => {
   renderer.setSize(W(), H());
   camera.aspect = W() / H();
   camera.updateProjectionMatrix();
+  map.resize();
 });
 </script>
 </body>
