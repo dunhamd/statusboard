@@ -1,3 +1,13 @@
+## Ownership and Support
+
+Owner: HPSA  
+Technical Owner: HPSA  
+Purpose: Production status board  
+Hosting: GitHub Pages  
+Live URL: https://dunhamd.github.io/statusboard/
+
+Changes to this repository affect a live production display.
+``
 # OHSU Status Boards
 
 Campus-wide transit status board system for Oregon Health & Science University (OHSU).
