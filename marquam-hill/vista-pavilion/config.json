@@ -19,7 +19,7 @@
     }
   ],
   "alerts": {
-    "active": true,
+    "active": false,
     "message": "Vista Pavilion opening April 7, 2026 · Campus Drive transit stop resuming service"
   },
   "features": {
